@@ -1,7 +1,8 @@
 
-## auth_tools Integration Guide
+## axum_jwt_ware Integration Guide
+Simple Axum + JWT authentication middleware with Login implemented. 
 
-Auth Tools is a Rust crate designed to simplify authentication and authorization in your Axum-based web applications. This guide provides step-by-step instructions on integrating Auth Tools into your project.
+Warning: This library is still under development and should be considered expirimental until version a stable release at version 1.0.0
 
 ## Installation
 
@@ -38,7 +39,7 @@ let app = Router::new()
         })),
     )
     .route("/login", post(move | body: Json<lib::MyRequestBody>| {
-        login(body, user_data.clone(), jwt_secret)
+        login(body, user_data.clone(), jwt_secret) // login returns {username, token}
     }));
 
 }
@@ -60,4 +61,18 @@ async fn hello(
     Json(current_user)
 }
 ```
+
+The `CurrentUser` Struct looks like this: 
+```rs
+pub struct CurrentUser {
+    pub name: String,
+    pub email: String,
+    pub username: String,
+    pub id: String,
+    pub password: String,
+}
+```
+
+
+If you don't want to implement your own login: you can use the `axum_jwt_ware::auth_token_encode` method to generate your token. 
 
