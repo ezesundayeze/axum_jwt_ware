@@ -6,14 +6,14 @@ Auth Tools is a Rust crate designed to simplify authentication and authorization
 ## Installation
 
 ```sh
-cargo add auth_tools
+cargo add axum_jwt_ware
 ```
 
 ## Usage example
 
 ```rs
 // main.rs file
-use auth_tools::{login, CurrentUser, UserData, verify_user};
+use axum_jwt_ware::{login, CurrentUser, UserData, verify_user};
 use axum::{middleware, routing::{get, post}, Extension, Json, Router};
 use std::net::SocketAddr;
 

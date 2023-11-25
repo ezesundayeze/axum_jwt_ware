@@ -44,18 +44,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "auth_tools"
-version = "0.1.0"
-dependencies = [
- "axum",
- "chrono",
- "jsonwebtoken",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -106,6 +94,18 @@ dependencies = [
  "mime",
  "tower-layer",
  "tower-service",
+]
+
+[[package]]
+name = "axum_jwt_ware"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
