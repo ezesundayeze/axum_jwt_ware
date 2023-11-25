@@ -1,0 +1,26 @@
+[package]
+name = "auth_tools"
+version = "0.1.0"
+edition = "2021"
+authors = ["Eze <mailstoexe@gmail.com>"]
+description = "Axum Authentication Library"
+readme = "readme.md"
+repository = "https://github.com/ezesunday/auth_tools/"
+license = "MIT OR Apache-2.0"
+keywords = ["auth", "jwt"]
+
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "0.5"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4.24", features = ["serde"] }
+jsonwebtoken = { version = "9", default-features = false }
+serde = { version = "1.0.159", features = ["derive"] }
+serde_json = "1.0.95"
+
+[lib]
+name = "auth_tools"
+path = "src/lib.rs"
