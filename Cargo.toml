@@ -1,6 +1,6 @@
 [package]
 name = "axum_jwt_ware"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Eze <mailstoexe@gmail.com>"]
 description = "Axum Authentication Library"
