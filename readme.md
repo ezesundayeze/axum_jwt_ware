@@ -2,7 +2,7 @@
 ## axum_jwt_ware Integration Guide
 Simple Axum + JWT authentication middleware with Login implemented. 
 
-Warning: This library is still under development and should be considered expirimental until version a stable release at version 1.0.0
+Warning: This library is still under development and should be considered expirimental until a stable version is released at version 1.0.0
 
 ## Installation
 
@@ -75,4 +75,10 @@ pub struct CurrentUser {
 
 
 If you don't want to implement your own login: you can use the `axum_jwt_ware::auth_token_encode` method to generate your token. 
+
+
+## Features
+- Refresh Token
+- Login
+- Authentication Middleware
 
