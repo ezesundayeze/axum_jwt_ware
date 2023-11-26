@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 
-pub use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation};
+pub use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation, Algorithm};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

@@ -65,16 +65,19 @@ let app = Router::new()
 .route("/login", post(move | body: Json<axum_jwt_ware::RequestBody>| {
     let user_data = MyUserData;
     let jwt_secret = "secret_from_env";
-    login(body, user_data.clone(), jwt_secret) // login returns {username, token}
+    let expiry_timestamp = Utc::now() + Duration::hours(48);
+
+    login(body, user_data.clone(), jwt_secret, expiry_timestamp ) // login returns {username, token}
 }));
 ```
 
 <p>If you are going to implement a custom login make sure to use the `axum_auth_ware::auth_encode` method to generate your token</p>
 
 ```rs
-use axum_jwt_ware::{CurrentUser, UserData, auth_token_encode};
-let header = &Header::default();
-let key = EncodingKey::from_secret(jwt_secret.as_ref());
+use axum_jwt_ware::{CurrentUser, UserData, Algorithm auth_token_encode};
+let key = EncodingKey::from_rsa_pem(include_bytes!("../jwt.key")).unwrap();
+let mut header = Header::new(Algorithm::RS256);
+let expiry_timestamp = Utc::now() + Duration::hours(48);
 
 let claims = Claims {
     sub: user.id,
@@ -84,13 +87,20 @@ let claims = Claims {
 let token = auth_token_encode(claims, header, &key).await;
 ```
 
-<p>That's all.</p>
+<p>You're all set!</p>
 
 ## Features
 - [] Refresh Token
 - [x] Login
-  - You can imlement your own test
+  - You can imlement your own login
+  - Use the provided login
 
 - [x] Authentication Middleware
 - [] Test 
+
+<p>Want to contribute?</p>
+
+- Create an issue
+- Fork the repo
+- Create a PR that fixes the issue
 
