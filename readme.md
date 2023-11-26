@@ -94,7 +94,6 @@ let token = auth_token_encode(claims, header, &key).await;
 - [x] Login
   - You can imlement your own login
   - Use the provided login
-
 - [x] Authentication Middleware
 - [ ] Test 
 
