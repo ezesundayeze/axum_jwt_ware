@@ -90,13 +90,13 @@ let token = auth_token_encode(claims, header, &key).await;
 <p>You're all set!</p>
 
 ## Features
-- [] Refresh Token
+- [ ] Refresh Token
 - [x] Login
   - You can imlement your own login
   - Use the provided login
 
 - [x] Authentication Middleware
-- [] Test 
+- [ ] Test 
 
 <p>Want to contribute?</p>
 
