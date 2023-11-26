@@ -5,8 +5,7 @@ use axum::{
     Json,
 };
 
-use chrono::{Utc, TimeZone};
-use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation};
+pub use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -32,7 +31,7 @@ pub struct AuthError {
 }
 
 #[derive(Deserialize)]
-pub struct MyRequestBody {
+pub struct RequestBody {
     pub email: String,
     pub password: String,
 }
@@ -45,7 +44,6 @@ pub struct LoginResponse {
 
 pub trait UserData {
     fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
-    fn get_user_by_id(&self, _user_id: &str) -> Option<CurrentUser>;
 }
 
 impl IntoResponse for AuthError {
@@ -58,15 +56,12 @@ impl IntoResponse for AuthError {
     }
 }
 
-pub async fn verify_user<B, D>(
+pub async fn verify_user<B>(
     mut req: Request<B>,
-    user_db: D,
-    jwt_secret: &str,
+    key: &DecodingKey,
+    validation: Validation,
     next: Next<B>,
-) -> Result<Response, AuthError>
-where
-    D: UserData,
-{
+) -> Result<Response, AuthError> {
     let auth_header = req
         .headers()
         .get(http::header::AUTHORIZATION)
@@ -77,8 +72,8 @@ where
         status_code: StatusCode::UNAUTHORIZED,
     })?;
 
-    if let Ok(current_user) = authorize_current_user(auth_header, user_db, jwt_secret).await {
-        req.extensions_mut().insert(current_user);
+    if let Ok(claims) = authorize_current_user(auth_header, key, validation).await {
+        req.extensions_mut().insert(claims);
         Ok(next.run(req).await)
     } else {
         Err(AuthError {
@@ -88,49 +83,14 @@ where
     }
 }
 
-pub async fn auth_token_encode(
-    user: CurrentUser,
-    jwt_secret: &str,
-    expiry_time_stamp: i64,
-) -> Result<String, Error> {
-    let claims = Claims {
-        username: user.username,
-        exp: expiry_time_stamp,
-        sub: user.id,
-    };
+async fn authorize_current_user(
+    auth_token: &str,
+    key: &DecodingKey,
+    validation: Validation,
+) -> Result<Claims, String> {
+    let mut authorization_with_bearer = auth_token.split_whitespace();
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(jwt_secret.as_ref()),
-    )?;
-    Ok(token)
-}
-
-pub async fn auth_token_decode(
-    token: String,
-    jwt_secret: &str,
-) -> Result<jsonwebtoken::TokenData<Claims>, String> {
-    let decoding_key = DecodingKey::from_secret(jwt_secret.as_ref());
-    let validation = Validation::default();
-
-    let claims: jsonwebtoken::TokenData<Claims> =
-        decode::<Claims>(&token, &decoding_key, &validation)
-            .map_err(|e| format!("Error decoding token: {}", e))?;
-    Ok(claims)
-}
-
-async fn authorize_current_user<D>(
-    _auth_token: &str,
-    user_db: D,
-    jwt_secret: &str,
-) -> Result<CurrentUser, String>
-where
-    D: UserData,
-{
-    let mut authorization_with_bearer = _auth_token.split_whitespace();
-
-    if _auth_token.is_empty() {
+    if auth_token.is_empty() {
         return Err("Authorization must be in the format: bearer {token}".to_string());
     }
 
@@ -141,38 +101,56 @@ where
         return Err("Authorization must be in the format: bearer {token}".to_string());
     }
 
-    let decode = auth_token_decode(token.unwrap().to_string(), jwt_secret).await;
+    let decode = auth_token_decode(token.unwrap().to_string(), key, validation).await;
 
     match decode {
-        Ok(token_data) => {
-            let user = user_db.get_user_by_id(&token_data.claims.sub);
-            if let Some(user) = user {
-                Ok(user)
-            } else {
-                Err("Invalid user ID".to_string())
-            }
-        }
+        Ok(token_data) => Ok(token_data.claims),
         Err(err) => Err(err.to_string()),
     }
 }
 
-pub async fn login<D>(body: Json<MyRequestBody>, user_db: D, jwt_secret: &str) -> impl IntoResponse
+pub async fn auth_token_encode(
+    claims: Claims,
+    header: &Header,
+    key: &EncodingKey,
+) -> Result<String, Error> {
+    let token = encode(&header, &claims, key)?;
+    Ok(token)
+}
+
+pub async fn auth_token_decode(
+    token: String,
+    key: &DecodingKey,
+    validation: Validation,
+) -> Result<jsonwebtoken::TokenData<Claims>, String> {
+    let claims: jsonwebtoken::TokenData<Claims> = decode::<Claims>(&token, key, &validation)
+        .map_err(|e| format!("Error decoding token: {}", e))?;
+    Ok(claims)
+}
+
+pub async fn login<D>(
+    body: Json<RequestBody>,
+    user_data: D,
+    jwt_secret: &str,
+    expiry_timestamp: i64,
+) -> impl IntoResponse
 where
     D: UserData,
 {
     let email = &body.email;
     let password = &body.password;
 
-    let current_timestamp = Utc::now().timestamp();
-    let timestamp_in_two_days = Utc
-        .timestamp_opt(current_timestamp + 2 * 24 * 60 * 60, 0)
-        .unwrap(); // 2days
-
-    if let Some(user) = user_db.get_user_by_email(email) {
+    if let Some(user) = user_data.get_user_by_email(email) {
         if email == &user.email && password == &user.password {
-            let gentoken =
-                auth_token_encode(user.clone(), jwt_secret, timestamp_in_two_days.timestamp())
-                    .await;
+            let header = &Header::default();
+            let key = EncodingKey::from_secret(jwt_secret.as_ref());
+
+            let claims = Claims {
+                sub: user.id,
+                username: user.username.clone(),
+                exp: expiry_timestamp,
+            };
+            let gentoken = auth_token_encode(claims, header, &key).await;
             let response = Json(json!({
                 "token": gentoken.unwrap_or_else(|_| String::from("default_token")),
                 "username": user.username,

@@ -1,6 +1,6 @@
 [package]
 name = "axum_jwt_ware"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Eze <mailstoexe@gmail.com>"]
 description = "Axum Authentication Library"
@@ -14,7 +14,6 @@ keywords = ["auth", "jwt"]
 [dependencies]
 axum = "0.5"
 tokio = { version = "1", features = ["full"] }
-chrono = { version = "0.4.24", features = ["serde"] }
 jsonwebtoken = { version = "9", default-features = false }
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.95"
