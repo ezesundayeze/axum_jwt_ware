@@ -127,6 +127,54 @@ let app = Router::new()
 }));
 ```
 
+A more wholistic example:
+
+```rs
+use crate::{
+    auth,
+    service::{hello, MyUserData},
+};
+use axum::{
+    middleware,
+    routing::{get, post},
+    Json, Router,
+};
+
+use chrono::{Duration, Utc};
+
+
+pub fn create_router() -> Router {
+    let user_data = MyUserData;
+    let jwt_secret = "secret";
+
+    let app = Router::new()
+        .route(
+            "/hello",
+            get(hello)
+                .layer(middleware::from_fn(move |req, next| {
+                    let key = auth::DecodingKey::from_secret(jwt_secret.as_ref());
+                    let validation  = auth::Validation::default();
+                    async move { auth::verify_user(req, &key, validation, next).await }
+                })),
+        )
+        .route(
+            "/login",
+            post(move |body: Json<auth::RequestBody>| {
+                let expiry_timestamp = Utc::now() + Duration::hours(48);
+
+                auth::login(
+                    body,
+                    user_data.clone(),
+                    jwt_secret,
+                    expiry_timestamp.timestamp(),
+                )
+            }),
+        );
+    app
+}
+
+```
+
 <p>You're all set!</p>
 
 ## Features
