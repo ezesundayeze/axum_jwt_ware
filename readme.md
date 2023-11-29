@@ -101,24 +101,29 @@ refresh token handler which should look like this:
 use axum_jwt_ware::{CurrentUser, Claims, UserData, Algorithm, refresh_token};
 
 let app = Router::new()
-.route("/refresh", post(move | body: Json<axum_jwt_ware::RequestBody>| {
+.route("/refresh", get(move | body: Json<axum_jwt_ware::RequestBody>| {
 
     let header = &Header::default();
-    let key = EncodingKey::from_secret(jwt_secret.as_ref());
-    let expiry_timestamp = Utc::now() + Duration::hours(48);
 
-let claims = Claims {
-    sub: user.id,
-    username: user.username.clone(),
-    exp: expiry_timestamp,
-};
+    let claims = Claims {
+        sub: user.id,
+        username: user.username.clone(),
+        exp: expiry_timestamp,
+    };
 
-    token: &str,
-    encoding_info: EncodingContext,
-    decoding_info: DecodingContext,
-    claims: Claims,
+    let encoding_info = EncodingContext {
+        header: &Header::default(),
+        key: EncodingKey::from_secret(jwt_secret.as_ref()).
+        validation: Validation::default(),
+    }
 
-    refresh_token(token, claims, ) // login returns {username, token}
+    let decoding_info = DecodingContext{
+        header: &Header::default(),
+        key: DecodingKey::from_secret(jwt_secret.as_ref()).
+        validation: Validation::default(),
+    }
+
+    refresh_token(token, encoding_info, decoding_info, claims) // login returns {username, token}
 }));
 ```
 
