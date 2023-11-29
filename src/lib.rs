@@ -1,11 +1,13 @@
 use axum::{
-    http::{self, Request, StatusCode},
+    http::{self, Request, StatusCode, request},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json,
+    Json, body::{HttpBody, Body},
 };
 
-pub use jsonwebtoken::{decode, encode, errors::Error, DecodingKey, EncodingKey, Header, Validation, Algorithm};
+pub use jsonwebtoken::{
+    decode, encode, errors::Error, Algorithm, DecodingKey, EncodingKey, Header, Validation,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -18,7 +20,7 @@ pub struct CurrentUser {
     pub password: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
     pub username: String,
@@ -56,11 +58,11 @@ impl IntoResponse for AuthError {
     }
 }
 
-pub async fn verify_user<B>(
-    mut req: Request<B>,
+pub async fn verify_user(
+    mut req: Request<Body>,
     key: &DecodingKey,
     validation: Validation,
-    next: Next<B>,
+    next: Next,
 ) -> Result<Response, AuthError> {
     let auth_header = req
         .headers()
@@ -80,6 +82,37 @@ pub async fn verify_user<B>(
             message: "Invalid token".to_string(),
             status_code: StatusCode::UNAUTHORIZED,
         })
+    }
+}
+
+pub struct EncodingContext {
+    pub key: EncodingKey,
+    pub validation: Validation,
+    pub header: Header,
+}
+
+pub struct DecodingContext {
+    pub key: DecodingKey,
+    pub validation: Validation,
+    pub header: Header,
+}
+
+pub struct Queryparams {
+    token: String
+}
+
+pub async fn refresh_token<B>(
+    query_params: Queryparams,
+    encoding_info: EncodingContext,
+    decoding_info: DecodingContext,
+    claims: Claims,
+) -> impl IntoResponse {
+
+    let token = query_params.token;
+    if let Ok(_) = auth_token_decode(token, &decoding_info.key, decoding_info.validation).await {
+        Json(json!({"token": auth_token_encode(claims, &encoding_info.header, &encoding_info.key).await.expect("Error encoding token")}))
+    } else {
+        Json(json!({"message": "Error decoding token"}))
     }
 }
 

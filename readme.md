@@ -1,8 +1,9 @@
-
 ## axum_jwt_ware Integration Guide
+
 Simple Axum + JWT authentication middleware with Login implemented.
 
 ## Goal
+
 <p>I want to make it a lot easier for developers/indie hackers to focus on writing their core business logic when starting a new project instead of spending time re-writing authentication</p>
 
 ## Installation
@@ -23,6 +24,7 @@ pub async fn verify_user<B>(
     next: Next<B>,
 ) -> Result<Response, AuthError>
 ```
+
 So, you can pass it to the route layer as shown below:
 
 ```rs
@@ -43,6 +45,7 @@ let app = Router::new()
         })),
     )
 ```
+
 ## Login
 
 <p>This library allows you to either implement your own custom Login or use the login provided by the library. The login provided by the library uses the default Algorithm and just requires you to provide your "secret". Note that what ever pattern you use in the login should also be replicated in the verify_user middleware.</p>
@@ -58,7 +61,7 @@ pub struct MyUserData;
 impl UserData for MyUserData {
     fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
         // Implement the logic to fetch user by email from your database
-    }   
+    }
 }
 
 let app = Router::new()
@@ -87,19 +90,51 @@ let claims = Claims {
 let token = auth_token_encode(claims, header, &key).await;
 ```
 
+## Refresh token
+
+Refresh token simply allows a user to login (gain a new access token) without requiring them to enter their username and password(full login).
+
+You can invent yours by using the `auth_token_encode` and the `auth_token_decode` functions or you can simply use the
+refresh token handler which should look like this:
+
+```rs
+use axum_jwt_ware::{CurrentUser, Claims, UserData, Algorithm, refresh_token};
+
+let app = Router::new()
+.route("/refresh", post(move | body: Json<axum_jwt_ware::RequestBody>| {
+
+    let header = &Header::default();
+    let key = EncodingKey::from_secret(jwt_secret.as_ref());
+    let expiry_timestamp = Utc::now() + Duration::hours(48);
+
+let claims = Claims {
+    sub: user.id,
+    username: user.username.clone(),
+    exp: expiry_timestamp,
+};
+
+    token: &str,
+    encoding_info: EncodingContext,
+    decoding_info: DecodingContext,
+    claims: Claims,
+
+    refresh_token(token, claims, ) // login returns {username, token}
+}));
+```
+
 <p>You're all set!</p>
 
 ## Features
-- [ ] Refresh Token
+
+- [x] Refresh Token
 - [x] Login
   - You can imlement your own login
   - Use the provided login
 - [x] Authentication Middleware
-- [ ] Test 
+- [ ] Test
 
 <p>Want to contribute?</p>
 
 - Create an issue
 - Fork the repo
 - Create a PR that fixes the issue
-
