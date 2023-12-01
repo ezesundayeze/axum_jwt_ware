@@ -1,4 +1,4 @@
-workspace = { members = ["examples/helloworld"] }
+# workspace = { members = ["examples/helloworld"] }
 [package]
 name = "axum_jwt_ware"
 version = "0.1.4"
