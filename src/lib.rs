@@ -1,14 +1,15 @@
 use axum::{
-    http::{self, Request, StatusCode, request},
+    body::Body,
+    http::{self, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
-    Json, body::{HttpBody, Body},
+    Json,
 };
 
 pub use jsonwebtoken::{
     decode, encode, errors::Error, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
-use serde::{Deserialize, Serialize};
+pub use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -97,23 +98,9 @@ pub struct DecodingContext {
     pub header: Header,
 }
 
-pub struct Queryparams {
-    token: String
-}
-
-pub async fn refresh_token<B>(
-    query_params: Queryparams,
-    encoding_info: EncodingContext,
-    decoding_info: DecodingContext,
-    claims: Claims,
-) -> impl IntoResponse {
-
-    let token = query_params.token;
-    if let Ok(_) = auth_token_decode(token, &decoding_info.key, decoding_info.validation).await {
-        Json(json!({"token": auth_token_encode(claims, &encoding_info.header, &encoding_info.key).await.expect("Error encoding token")}))
-    } else {
-        Json(json!({"message": "Error decoding token"}))
-    }
+#[derive(Deserialize)]
+pub struct RefreshBody {
+    token: String,
 }
 
 async fn authorize_current_user(
@@ -127,8 +114,7 @@ async fn authorize_current_user(
         return Err("Authorization must be in the format: bearer {token}".to_string());
     }
 
-    let bearer = authorization_with_bearer.next();
-    let token = authorization_with_bearer.next();
+    let (bearer, token) = (authorization_with_bearer.next(), authorization_with_bearer.next());
 
     if bearer != Some("Bearer") || token.is_none() {
         return Err("Authorization must be in the format: bearer {token}".to_string());
@@ -165,6 +151,7 @@ pub async fn login<D>(
     body: Json<RequestBody>,
     user_data: D,
     jwt_secret: &str,
+    refresh_jwt_secret: &str,
     expiry_timestamp: i64,
 ) -> impl IntoResponse
 where
@@ -177,16 +164,21 @@ where
         if email == &user.email && password == &user.password {
             let header = &Header::default();
             let key = EncodingKey::from_secret(jwt_secret.as_ref());
+            let refresh_key = EncodingKey::from_secret(refresh_jwt_secret.as_ref());
+            let refresh_header = &Header::default();
 
             let claims = Claims {
                 sub: user.id,
                 username: user.username.clone(),
                 exp: expiry_timestamp,
             };
-            let gentoken = auth_token_encode(claims, header, &key).await;
+
+            let access_token = auth_token_encode(claims.clone(), header, &key).await;
+            let refresh_token = auth_token_encode(claims, refresh_header, &refresh_key).await;
             let response = Json(json!({
-                "token": gentoken.unwrap_or_else(|_| String::from("default_token")),
+                "access_token": access_token.expect("Invalid token"),
                 "username": user.username,
+                "refresh_token": refresh_token.expect("invalid refresh token")
             }));
             return Ok(response);
         }
@@ -197,4 +189,37 @@ where
         status_code: StatusCode::UNAUTHORIZED,
     };
     Err(error)
+}
+
+pub async fn refresh_token(
+    body: Json<RefreshBody>,
+    encoding_context: EncodingContext,
+    decoding_context: DecodingContext,
+    claims: Claims,
+) -> impl IntoResponse  {
+    let token = &body.token;
+
+    match auth_token_decode(
+        token.to_string(),
+        &decoding_context.key,
+        decoding_context.validation,
+    )
+    .await
+    
+    {
+        Ok(_) => {
+            match auth_token_encode(claims, &encoding_context.header, &encoding_context.key).await {
+                Ok(new_token) => Ok(Json(json!({"access_token": new_token}))),
+                Err(_) => Err(AuthError {
+                    message: "Invalid refresh token".to_string(),
+                    status_code: StatusCode::UNAUTHORIZED
+                }),
+            }
+        }
+
+        Err(_) => Err(AuthError {
+            message: "Invalid refresh token".to_string(),
+            status_code: StatusCode::UNAUTHORIZED
+        })
+    }
 }
