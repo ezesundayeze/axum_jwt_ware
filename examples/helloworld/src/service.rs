@@ -5,7 +5,7 @@ use crate::axum_jwt_ware::{UserData, CurrentUser, Claims};
 pub struct MyUserData;
 
 impl UserData for MyUserData {
-    fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
+   async fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
         // Implement the logic to fetch user by email from your database
         // This is just a placeholder; replace it with the actual implementation
         Some(CurrentUser {

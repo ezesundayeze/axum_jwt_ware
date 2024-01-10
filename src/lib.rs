@@ -46,7 +46,7 @@ pub struct LoginResponse {
 }
 
 pub trait UserData {
-    fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
+   async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
 }
 
 impl IntoResponse for AuthError {
@@ -160,7 +160,7 @@ where
     let email = &body.email;
     let password = &body.password;
 
-    if let Some(user) = user_data.get_user_by_email(email) {
+    if let Some(user) = user_data.get_user_by_email(email).await {
         if email == &user.email && password == &user.password {
             let header = &Header::default();
             let key = EncodingKey::from_secret(jwt_secret.as_ref());

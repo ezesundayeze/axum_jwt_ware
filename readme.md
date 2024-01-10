@@ -55,7 +55,7 @@ use axum_jwt_ware::{CurrentUser, UserData};
 pub struct MyUserData;
 
 impl UserData for MyUserData {
-    fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
+    async fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
         // Implement the logic to fetch a user by email from your database
     }
 }
