@@ -1,7 +1,7 @@
 # workspace = { members = ["examples/helloworld"] }
 [package]
 name = "axum_jwt_ware"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Eze <mailstoeze@gmail.com>"]
 description = "Axum Authentication Library"

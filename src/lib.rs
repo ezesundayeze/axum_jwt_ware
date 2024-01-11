@@ -150,8 +150,8 @@ pub async fn auth_token_decode(
 pub async fn login<D>(
     body: Json<RequestBody>,
     user_data: D,
-    jwt_secret: &str,
-    refresh_jwt_secret: &str,
+    jwt_secret: String,
+    refresh_jwt_secret: String,
     expiry_timestamp: i64,
 ) -> impl IntoResponse
 where
