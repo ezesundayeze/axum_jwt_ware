@@ -195,7 +195,6 @@ pub async fn refresh_token(
     body: Json<RefreshBody>,
     encoding_context: EncodingContext,
     decoding_context: DecodingContext,
-    claims: Claims,
 ) -> impl IntoResponse  {
     let token = &body.token;
 
@@ -207,8 +206,8 @@ pub async fn refresh_token(
     .await
     
     {
-        Ok(_) => {
-            match auth_token_encode(claims, &encoding_context.header, &encoding_context.key).await {
+        Ok(claims) => {
+            match auth_token_encode(claims.claims, &encoding_context.header, &encoding_context.key).await {
                 Ok(new_token) => Ok(Json(json!({"access_token": new_token}))),
                 Err(_) => Err(AuthError {
                     message: "Invalid refresh token".to_string(),
