@@ -24,7 +24,7 @@ pub fn create_router() -> Router {
         .route(
             "/login",
             post(move |body: Json<axum_jwt_ware::RequestBody>| {
-                let expiry_timestamp = Utc::now() + Duration::hours(48);
+                let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
 
                 axum_jwt_ware::login(
                     body,

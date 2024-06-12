@@ -64,7 +64,7 @@ let app = Router::new()
         .route(
             "/login",
             post(move |body: Json<axum_jwt_ware::RequestBody>| {
-                let expiry_timestamp = Utc::now() + Duration::hours(48);
+                let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
                 let user_data = MyUserData;
                 let jwt_secret = "secret";
                 let refresh_secret = "refresh_secret";
@@ -86,7 +86,7 @@ If you are going to implement a custom login, make sure to use the `axum_auth_wa
 use axum_jwt_ware::{CurrentUser, UserData, Algorithm, auth_token_encode};
 let key = EncodingKey::from_rsa_pem(include_bytes!("../jwt_rsa.key")).unwrap();
 let mut header = Header::new(Algorithm::RS256);
-let expiry_timestamp = Utc::now() + Duration::hours(48);
+let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
 
 let claims = Claims {
     sub: user.id,
@@ -126,7 +126,7 @@ let app = Router::new()
                     exp: (Utc::now() + Duration::hours(48)).timestamp(),
                 };
 
-                axum_jwt_ware::refresh_token(body, encoding_context, decoding_context, claims)
+                axum_jwt_ware::refresh_token(body, encoding_context, decoding_context, Some(claims))
             }),
         )
 ```
@@ -163,7 +163,7 @@ pub fn create_router() -> Router {
         .route(
             "/login",
             post(move |body: Json<auth::RequestBody>| {
-                let expiry_timestamp = Utc::now() + Duration::hours(48);
+                let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
 
                 auth::login(
                     body,

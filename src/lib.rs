@@ -46,7 +46,7 @@ pub struct LoginResponse {
 }
 
 pub trait UserData {
-   async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
+    async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
 }
 
 impl IntoResponse for AuthError {
@@ -114,7 +114,10 @@ async fn authorize_current_user(
         return Err("Authorization must be in the format: bearer {token}".to_string());
     }
 
-    let (bearer, token) = (authorization_with_bearer.next(), authorization_with_bearer.next());
+    let (bearer, token) = (
+        authorization_with_bearer.next(),
+        authorization_with_bearer.next(),
+    );
 
     if bearer != Some("Bearer") || token.is_none() {
         return Err("Authorization must be in the format: bearer {token}".to_string());
@@ -195,7 +198,8 @@ pub async fn refresh_token(
     body: Json<RefreshBody>,
     encoding_context: EncodingContext,
     decoding_context: DecodingContext,
-) -> impl IntoResponse  {
+    new_claims: Option<Claims>,
+) -> impl IntoResponse {
     let token = &body.token;
 
     match auth_token_decode(
@@ -206,8 +210,18 @@ pub async fn refresh_token(
     .await
     
     {
-        Ok(claims) => {
-            match auth_token_encode(claims.claims, &encoding_context.header, &encoding_context.key).await {
+        Ok(mut claims) => {
+            match new_claims {
+                Some(new) => claims.claims = new,
+                None => {}
+            }
+            match auth_token_encode(
+                claims.claims,
+                &encoding_context.header,
+                &encoding_context.key,
+            )
+            .await
+            {
                 Ok(new_token) => Ok(Json(json!({"access_token": new_token}))),
                 Err(_) => Err(AuthError {
                     message: "Invalid refresh token".to_string(),
@@ -218,7 +232,7 @@ pub async fn refresh_token(
 
         Err(_) => Err(AuthError {
             message: "Invalid refresh token".to_string(),
-            status_code: StatusCode::UNAUTHORIZED
-        })
+            status_code: StatusCode::UNAUTHORIZED,
+        }),
     }
 }
