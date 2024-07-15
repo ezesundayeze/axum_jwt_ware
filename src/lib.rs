@@ -46,7 +46,10 @@ pub struct LoginResponse {
 }
 
 pub trait UserData {
-    async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
+    fn get_user_by_email(
+        &self,
+        email: &str,
+    ) -> impl std::future::Future<Output = Option<CurrentUser>> + Send;
 }
 
 impl IntoResponse for AuthError {
@@ -208,7 +211,6 @@ pub async fn refresh_token(
         decoding_context.validation,
     )
     .await
-    
     {
         Ok(mut claims) => {
             match new_claims {
@@ -225,7 +227,7 @@ pub async fn refresh_token(
                 Ok(new_token) => Ok(Json(json!({"access_token": new_token}))),
                 Err(_) => Err(AuthError {
                     message: "Invalid refresh token".to_string(),
-                    status_code: StatusCode::UNAUTHORIZED
+                    status_code: StatusCode::UNAUTHORIZED,
                 }),
             }
         }
