@@ -29,9 +29,9 @@ pub fn create_router() -> Router {
                 axum_jwt_ware::login(
                     body,
                     user_data.clone(),
-                    jwt_secret,
-                    refresh_secret,
-                    expiry_timestamp.timestamp(),
+                    jwt_secret.to_string(),
+                    refresh_secret.to_string(),
+                    expiry_timestamp,
                 )
             }),
         )
@@ -53,7 +53,7 @@ pub fn create_router() -> Router {
                     username: "ezesunday".to_string(),
                     exp: (Utc::now() + Duration::hours(48)).timestamp(),
                 };
-                refresh_token(body, encoding_context, decoding_context, claims)
+                refresh_token(body, encoding_context, decoding_context, Some(claims))
             }),
         );
     app

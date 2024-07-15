@@ -1,14 +1,12 @@
 [package]
+edition = "2021"
 name = "helloworld"
 version = "0.1.1"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = "0.7.1"
-axum_jwt_ware = { version = "0.1.4", path = "../.." }
+axum = "0.7.5"
+axum_jwt_ware = {version = "0.1.8", path = "../.."}
 chrono = "0.4.31"
 tokio = "1.34.0"
-
-
