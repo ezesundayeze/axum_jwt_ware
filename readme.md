@@ -50,21 +50,33 @@ impl UserData for MyUserData {
 }
 ```
 
-### 2. Create the `AuthLayer`
+### 2. Create the `Authenticator`
 
-The `AuthLayer` is a middleware that you can use to protect your routes. You need to provide a `DecodingKey` and a `Validation` struct to create it.
+The `Authenticator` struct holds all the necessary configuration, such as the keys, validation, and user data implementation.
 
 ```rust
-use axum_jwt_ware::{AuthLayer, DecodingKey, Validation};
+use axum_jwt_ware::{Authenticator, DecodingKey, EncodingKey, Validation};
 
-let key = DecodingKey::from_secret("secret".as_ref());
+let user_data = MyUserData;
+let jwt_key = EncodingKey::from_secret("secret".as_ref());
+let refresh_key = EncodingKey::from_secret("refresh_secret".as_ref());
+let jwt_decoding_key = DecodingKey::from_secret("secret".as_ref());
+let refresh_decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
 let validation = Validation::default();
-let auth_layer = AuthLayer::new(key, validation);
+
+let auth = Authenticator::new(
+    user_data,
+    jwt_key,
+    refresh_key,
+    jwt_decoding_key,
+    refresh_decoding_key,
+    validation,
+);
 ```
 
 ### 3. Protect your routes
 
-You can use the `AuthLayer` to protect your routes by adding it as a layer to your router.
+You can use the `Authenticator` to protect your routes by calling the `layer()` method.
 
 ```rust
 use axum::{routing::get, Router};
@@ -75,7 +87,7 @@ async fn protected_route() -> &'static str {
 
 let app = Router::new()
     .route("/protected", get(protected_route))
-    .layer(auth_layer);
+    .layer(auth.layer());
 ```
 
 Any route under the `auth_layer` will have access to the `Claims` from the JWT in the request extensions. You can extract it like this:
@@ -91,64 +103,36 @@ async fn protected_route(Extension(claims): Extension<Claims>) -> Json<Claims> {
 
 ### 4. Implement the login handler
 
-The library provides a `login` function that you can use to implement your login handler. You need to provide the necessary keys, user data, and other parameters to this function.
+The `Authenticator` provides a `login` method that you can use to implement your login handler.
 
 ```rust
 use axum::{routing::post, Json, Router};
-use axum_jwt_ware::{login, EncodingKey, RequestBody};
-use chrono::{Duration, Utc};
-
-let user_data = MyUserData;
-let jwt_secret = EncodingKey::from_secret("secret".as_ref());
-let refresh_secret = EncodingKey::from_secret("refresh_secret".as_ref());
+use axum_jwt_ware::RequestBody;
 
 let app = Router::new().route(
     "/login",
-    post(move |body: Json<RequestBody>| {
-        let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
-
-        login(
-            body,
-            &user_data,
-            &jwt_secret,
-            &refresh_secret,
-            expiry_timestamp,
-        )
-    }),
+    post(move |body: Json<RequestBody>| async move { auth.login(body).await }),
 );
 ```
 
 ### 5. Implement the refresh token handler
 
-The library provides a `refresh_token` function that you can use to implement your refresh token handler.
+The `Authenticator` provides a `refresh` method that you can use to implement your refresh token handler.
 
 ```rust
 use axum::{routing::post, Json, Router};
-use axum_jwt_ware::{
-    refresh_token, Claims, DecodingKey, EncodingKey, Header, RefreshBody, Validation,
-};
+use axum_jwt_ware::{Claims, RefreshBody};
 use chrono::{Duration, Utc};
-
-let refresh_secret = EncodingKey::from_secret("refresh_secret".as_ref());
-let refresh_decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
-let validation = Validation::default();
 
 let app = Router::new().route(
     "/refresh",
-    post(move |body: Json<RefreshBody>| {
-        let claims = Claims {
+    post(move |body: Json<RefreshBody>| async move {
+        let new_claims = Claims {
             sub: "jkfajfafghjjfn".to_string(),
             username: "ezesunday".to_string(),
             exp: (Utc::now() + Duration::hours(48)).timestamp(),
         };
-        refresh_token(
-            body,
-            &refresh_secret,
-            &refresh_decoding_key,
-            &validation,
-            &Header::default(),
-            Some(claims),
-        )
+        auth.refresh(body, Some(new_claims)).await
     }),
 );
 ```

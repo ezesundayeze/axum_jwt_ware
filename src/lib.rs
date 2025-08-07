@@ -73,6 +73,71 @@ pub trait UserData: Send + Sync {
     async fn verify_password(&self, user_id: &str, password: &str) -> bool;
 }
 
+#[derive(Clone)]
+pub struct Authenticator<D: UserData> {
+    user_data: D,
+    jwt_key: EncodingKey,
+    refresh_key: EncodingKey,
+    jwt_decoding_key: DecodingKey,
+    refresh_decoding_key: DecodingKey,
+    validation: Validation,
+}
+
+impl<D: UserData> Authenticator<D> {
+    pub fn new(
+        user_data: D,
+        jwt_key: EncodingKey,
+        refresh_key: EncodingKey,
+        jwt_decoding_key: DecodingKey,
+        refresh_decoding_key: DecodingKey,
+        validation: Validation,
+    ) -> Self {
+        Self {
+            user_data,
+            jwt_key,
+            refresh_key,
+            jwt_decoding_key,
+            refresh_decoding_key,
+            validation,
+        }
+    }
+
+    pub fn layer(&self) -> AuthLayer {
+        AuthLayer::new(self.jwt_decoding_key.clone(), self.validation.clone())
+    }
+
+    pub async fn login(
+        &self,
+        body: Json<RequestBody>,
+    ) -> Result<Json<serde_json::Value>, AuthError> {
+        let expiry_timestamp = (chrono::Utc::now() + chrono::Duration::hours(48)).timestamp();
+        login(
+            body,
+            &self.user_data,
+            &self.jwt_key,
+            &self.refresh_key,
+            expiry_timestamp,
+        )
+        .await
+    }
+
+    pub async fn refresh(
+        &self,
+        body: Json<RefreshBody>,
+        new_claims: Option<Claims>,
+    ) -> Result<Json<serde_json::Value>, AuthError> {
+        refresh_token(
+            body,
+            &self.refresh_key,
+            &self.refresh_decoding_key,
+            &self.validation,
+            &Header::default(),
+            new_claims,
+        )
+        .await
+    }
+}
+
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
