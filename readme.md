@@ -12,15 +12,47 @@ I aim to simplify the process for developers/indie hackers to focus on writing t
 cargo add axum_jwt_ware
 ```
 
-## Usage example
+## Usage
 
-There is one standard middleware for verifying a user via JWT -- the `AuthLayer` middleware. Its signature looks like this:
+### 1. Implement the `UserData` trait
+
+You need to create a struct and implement the `UserData` trait for it. This trait has two methods: `get_user_by_email` and `verify_password`. These methods are responsible for fetching a user from your database and verifying their password.
 
 ```rust
-pub fn new(key: DecodingKey, validation: Validation) -> Self
+use axum_jwt_ware::{CurrentUser, UserData};
+use async_trait::async_trait;
+
+#[derive(Clone, Copy)]
+pub struct MyUserData;
+
+#[async_trait]
+impl UserData for MyUserData {
+    async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser> {
+        // Implement the logic to fetch a user by email from your database
+        // This is just a placeholder; replace it with the actual implementation
+        if email == "test@test.com" {
+            Some(CurrentUser {
+                id: "1".to_string(),
+                name: "test".to_string(),
+                email: "test@test.com".to_string(),
+                username: "test".to_string(),
+            })
+        } else {
+            None
+        }
+    }
+
+    async fn verify_password(&self, user_id: &str, password: &str) -> bool {
+        // Implement the logic to verify a user's password
+        // This is just a placeholder; replace it with the actual implementation
+        user_id == "1" && password == "password"
+    }
+}
 ```
 
-You can pass it to the route layer as shown below:
+### 2. Create the `AuthLayer`
+
+The `AuthLayer` is a middleware that you can use to protect your routes. You need to provide a `DecodingKey` and a `Validation` struct to create it.
 
 ```rust
 use axum_jwt_ware::{AuthLayer, DecodingKey, Validation};
@@ -28,120 +60,109 @@ use axum_jwt_ware::{AuthLayer, DecodingKey, Validation};
 let key = DecodingKey::from_secret("secret".as_ref());
 let validation = Validation::default();
 let auth_layer = AuthLayer::new(key, validation);
-
-let app = Router::new()
-        .route(
-            "/hello",
-            get(hello)
-    )
-    .layer(auth_layer);
 ```
 
-## Login
+### 3. Protect your routes
 
-It's possible for you to either implement your own custom Login or use the login provided by the library. The provided login uses the default Algorithm and just requires you to provide your "secret."
-
-Here is an example of how to use the provided login:
+You can use the `AuthLayer` to protect your routes by adding it as a layer to your router.
 
 ```rust
-use axum_jwt_ware::{login, CurrentUser, RequestBody, UserData};
-use axum::Json;
-use chrono::{Duration, Utc};
+use axum::{routing::get, Router};
 
-#[derive(Clone, Copy)]
-pub struct MyUserData;
-
-#[async_trait::async_trait]
-impl UserData for MyUserData {
-    async fn get_user_by_email(&self, _email: &str) -> Option<CurrentUser> {
-        // Implement the logic to fetch a user by email from your database
-    }
-    async fn verify_password(&self, user_id: &str, password: &str) -> bool {
-        // Implement the logic to verify a user's password
-    }
+async fn protected_route() -> &'static str {
+    "This is a protected route"
 }
 
 let app = Router::new()
-        .route(
-            "/login",
-            post(move |body: Json<RequestBody>| {
-                let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
-                let user_data = MyUserData;
-                let jwt_key = EncodingKey::from_secret("secret".as_ref());
-                let refresh_key = EncodingKey::from_secret("refresh_secret".as_ref());
-
-                login(
-                    body,
-                    user_data.clone(),
-                    &jwt_key,
-                    &refresh_key,
-                    expiry_timestamp,
-                )
-            }),
-        )
+    .route("/protected", get(protected_route))
+    .layer(auth_layer);
 ```
 
-If you are going to implement a custom login, make sure to use the `axum_auth_ware::auth_token_encode` method to generate your token. Here is an example of a login with RSA encryption:
+Any route under the `auth_layer` will have access to the `Claims` from the JWT in the request extensions. You can extract it like this:
 
 ```rust
-use axum_jwt_ware::{auth_token_encode, Claims, Algorithm, Header, EncodingKey};
+use axum::{Extension, Json};
+use axum_jwt_ware::Claims;
+
+async fn protected_route(Extension(claims): Extension<Claims>) -> Json<Claims> {
+    Json(claims)
+}
+```
+
+### 4. Implement the login handler
+
+The library provides a `login` function that you can use to implement your login handler. You need to provide the necessary keys, user data, and other parameters to this function.
+
+```rust
+use axum::{routing::post, Json, Router};
+use axum_jwt_ware::{login, EncodingKey, RequestBody};
 use chrono::{Duration, Utc};
 
-let key = EncodingKey::from_rsa_pem(include_bytes!("../jwt_rsa.key")).unwrap();
-let mut header = Header::new(Algorithm::RS256);
-let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
+let user_data = MyUserData;
+let jwt_secret = EncodingKey::from_secret("secret".as_ref());
+let refresh_secret = EncodingKey::from_secret("refresh_secret".as_ref());
 
-let claims = Claims {
-    sub: user.id,
-    username: user.username.clone(),
-    exp: expiry_timestamp,
+let app = Router::new().route(
+    "/login",
+    post(move |body: Json<RequestBody>| {
+        let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
+
+        login(
+            body,
+            &user_data,
+            &jwt_secret,
+            &refresh_secret,
+            expiry_timestamp,
+        )
+    }),
+);
+```
+
+### 5. Implement the refresh token handler
+
+The library provides a `refresh_token` function that you can use to implement your refresh token handler.
+
+```rust
+use axum::{routing::post, Json, Router};
+use axum_jwt_ware::{
+    refresh_token, Claims, DecodingKey, EncodingKey, Header, RefreshBody, Validation,
 };
-let token = auth_token_encode(claims, &header, &key).await;
-```
-
-## Refresh token
-
-A refresh token allows a user to login (get a new access token) without requiring them to enter their username and password (full login).
-
-You can create your own using the `auth_token_encode` and `auth_token_decode` functions, or you can use the refresh token handler, which should look like this:
-
-```rust
-use axum_jwt_ware::{refresh_token, Claims, DecodingKey, EncodingKey, Header, RefreshBody, Validation};
-use axum::Json;
 use chrono::{Duration, Utc};
 
-let app = Router::new()
-        .route(
-            "/refresh",
-            post(move |body: Json<RefreshBody>| {
-                let key = EncodingKey::from_secret("refresh_secret".as_ref());
-                let decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
-                let validation = Validation::default();
-                let header = Header::default();
-                let claims = Claims {
-                    sub: "jkfajfafghjjfn".to_string(),
-                    username: "ezesunday".to_string(),
-                    exp: (Utc::now() + Duration::hours(48)).timestamp(),
-                };
+let refresh_secret = EncodingKey::from_secret("refresh_secret".as_ref());
+let refresh_decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
+let validation = Validation::default();
 
-                refresh_token(body, &key, &decoding_key, &validation, &header, Some(claims))
-            }),
+let app = Router::new().route(
+    "/refresh",
+    post(move |body: Json<RefreshBody>| {
+        let claims = Claims {
+            sub: "jkfajfafghjjfn".to_string(),
+            username: "ezesunday".to_string(),
+            exp: (Utc::now() + Duration::hours(48)).timestamp(),
+        };
+        refresh_token(
+            body,
+            &refresh_secret,
+            &refresh_decoding_key,
+            &validation,
+            &Header::default(),
+            Some(claims),
         )
+    }),
+);
 ```
 
 ## Example
-You can find a working example in the example directory in the [GitHub Repo](https://github.com/ezesundayeze/axum_jwt_ware/examples)
 
-You're all set!
+You can find a working example in the `examples/helloworld` directory in the [GitHub Repo](https://github.com/ezesundayeze/axum_jwt_ware/tree/main/examples/helloworld).
 
 ## Features
 
 - [x] Refresh Token
 - [x] Login
-  - You can implement your own login
-  - Use the provided login
 - [x] Authentication Middleware
-- [ ] Test
+- [x] Tests
 
 Want to contribute?
 
