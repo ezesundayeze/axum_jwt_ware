@@ -1,36 +1,37 @@
 use crate::service::{hello, MyUserData};
 use axum::{
-    middleware,
     routing::{get, post},
     Json, Router,
 };
-use axum_jwt_ware::{self, refresh_token, Claims, DecodingContext, EncodingContext, RefreshBody};
+use axum_jwt_ware::{
+    self, refresh_token, AuthLayer, Claims, DecodingKey, EncodingKey, Header, RefreshBody,
+    RequestBody, Validation,
+};
 use chrono::{Duration, Utc};
 
 pub fn create_router() -> Router {
     let user_data = MyUserData;
-    let jwt_secret = "secret";
-    let refresh_secret = "refresh_secret";
+    let jwt_secret = EncodingKey::from_secret("secret".as_ref());
+    let refresh_secret = EncodingKey::from_secret("refresh_secret".as_ref());
+    let decoding_key = DecodingKey::from_secret("secret".as_ref());
+    let refresh_decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
+    let validation = Validation::default();
+
+    let auth_layer = AuthLayer::new(decoding_key, validation.clone());
 
     let app = Router::new()
-        .route(
-            "/hello",
-            get(hello).layer(middleware::from_fn(move |req, next| {
-                let key = axum_jwt_ware::DecodingKey::from_secret(jwt_secret.as_ref());
-                let validation = axum_jwt_ware::Validation::default();
-                async move { axum_jwt_ware::verify_user(req, &key, validation, next).await }
-            })),
-        )
+        .route("/hello", get(hello))
+        .layer(auth_layer)
         .route(
             "/login",
-            post(move |body: Json<axum_jwt_ware::RequestBody>| {
+            post(move |body: Json<RequestBody>| {
                 let expiry_timestamp = (Utc::now() + Duration::hours(48)).timestamp();
 
                 axum_jwt_ware::login(
                     body,
-                    user_data.clone(),
-                    jwt_secret.to_string(),
-                    refresh_secret.to_string(),
+                    &user_data,
+                    &jwt_secret,
+                    &refresh_secret,
                     expiry_timestamp,
                 )
             }),
@@ -38,22 +39,19 @@ pub fn create_router() -> Router {
         .route(
             "/refresh",
             post(move |body: Json<RefreshBody>| {
-                let encoding_context = EncodingContext {
-                    header: axum_jwt_ware::Header::default(),
-                    validation: axum_jwt_ware::Validation::default(),
-                    key: axum_jwt_ware::EncodingKey::from_secret("refresh_secret".as_ref()),
-                };
-                let decoding_context = DecodingContext {
-                    header: axum_jwt_ware::Header::default(),
-                    validation: axum_jwt_ware::Validation::default(),
-                    key: axum_jwt_ware::DecodingKey::from_secret("refresh_secret".as_ref()),
-                };
                 let claims = Claims {
                     sub: "jkfajfafghjjfn".to_string(),
                     username: "ezesunday".to_string(),
                     exp: (Utc::now() + Duration::hours(48)).timestamp(),
                 };
-                refresh_token(body, encoding_context, decoding_context, Some(claims))
+                refresh_token(
+                    body,
+                    &refresh_secret,
+                    &refresh_decoding_key,
+                    &validation,
+                    &Header::default(),
+                    Some(claims),
+                )
             }),
         );
     app
