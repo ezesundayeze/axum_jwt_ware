@@ -1,26 +1,36 @@
+//! # Axum JWT Ware
+//!
+//! Simple Axum + JWT authentication middleware with implemented Login and refresh token.
+//!
+//! ## Goal
+//!
+//! I aim to simplify the process for developers/indie hackers to focus on writing their core business logic
+//! when starting a new project, rather than spending time rewriting authentication.
+
 use axum::{
-    body::Body,
     http::{self, Request, StatusCode},
-    middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
-
 pub use jsonwebtoken::{
     decode, encode, errors::Error, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 pub use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+/// The user object that will be returned from the `UserData` trait.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct CurrentUser {
     pub name: String,
     pub email: String,
     pub username: String,
     pub id: String,
-    pub password: String,
 }
 
+#[cfg(test)]
+mod tests;
+
+/// The claims that will be encoded into the JWT.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
@@ -28,84 +38,207 @@ pub struct Claims {
     pub exp: i64,
 }
 
-pub struct AuthError {
-    message: String,
-    status_code: StatusCode,
+/// The error type for the auth module.
+#[derive(Debug)]
+pub enum AuthError {
+    InvalidToken,
+    MissingAuthorization,
+    InvalidUsernameOrPassword,
+    TokenCreation,
+    Internal,
 }
 
+/// The request body for the login handler.
 #[derive(Deserialize)]
 pub struct RequestBody {
     pub email: String,
     pub password: String,
 }
 
+/// The response body for the login handler.
 #[derive(Deserialize, Debug)]
 pub struct LoginResponse {
     pub token: String,
     pub username: String,
 }
 
-pub trait UserData {
-    fn get_user_by_email(
+/// The trait that must be implemented by the user to provide user data.
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait UserData: Send + Sync {
+    /// Get a user by email.
+    async fn get_user_by_email(&self, email: &str) -> Option<CurrentUser>;
+    /// Verify a user's password.
+    async fn verify_password(&self, user_id: &str, password: &str) -> bool;
+}
+
+#[derive(Clone)]
+pub struct Authenticator<D: UserData> {
+    user_data: D,
+    jwt_key: EncodingKey,
+    refresh_key: EncodingKey,
+    jwt_decoding_key: DecodingKey,
+    refresh_decoding_key: DecodingKey,
+    validation: Validation,
+}
+
+impl<D: UserData> Authenticator<D> {
+    pub fn new(
+        user_data: D,
+        jwt_key: EncodingKey,
+        refresh_key: EncodingKey,
+        jwt_decoding_key: DecodingKey,
+        refresh_decoding_key: DecodingKey,
+        validation: Validation,
+    ) -> Self {
+        Self {
+            user_data,
+            jwt_key,
+            refresh_key,
+            jwt_decoding_key,
+            refresh_decoding_key,
+            validation,
+        }
+    }
+
+    pub fn layer(&self) -> AuthLayer {
+        AuthLayer::new(self.jwt_decoding_key.clone(), self.validation.clone())
+    }
+
+    pub async fn login(
         &self,
-        email: &str,
-    ) -> impl std::future::Future<Output = Option<CurrentUser>> + Send;
+        body: Json<RequestBody>,
+    ) -> Result<Json<serde_json::Value>, AuthError> {
+        let expiry_timestamp = (chrono::Utc::now() + chrono::Duration::hours(48)).timestamp();
+        login(
+            body,
+            &self.user_data,
+            &self.jwt_key,
+            &self.refresh_key,
+            expiry_timestamp,
+        )
+        .await
+    }
+
+    pub async fn refresh(
+        &self,
+        body: Json<RefreshBody>,
+        new_claims: Option<Claims>,
+    ) -> Result<Json<serde_json::Value>, AuthError> {
+        refresh_token(
+            body,
+            &self.refresh_key,
+            &self.refresh_decoding_key,
+            &self.validation,
+            &Header::default(),
+            new_claims,
+        )
+        .await
+    }
 }
 
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
+        let (status, error_message) = match self {
+            AuthError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid token"),
+            AuthError::MissingAuthorization => (StatusCode::UNAUTHORIZED, "Missing authorization"),
+            AuthError::InvalidUsernameOrPassword => {
+                (StatusCode::UNAUTHORIZED, "Invalid username or password")
+            }
+            AuthError::TokenCreation => (StatusCode::INTERNAL_SERVER_ERROR, "Token creation error"),
+            AuthError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
+        };
         let body = Json(json!({
-            "error": self.message,
+            "error": error_message,
         }));
-
-        (self.status_code, body).into_response()
+        (status, body).into_response()
     }
 }
 
-pub async fn verify_user(
-    mut req: Request<Body>,
-    key: &DecodingKey,
+/// The auth layer that can be used to protect routes.
+#[derive(Clone)]
+pub struct AuthLayer {
+    key: DecodingKey,
     validation: Validation,
-    next: Next,
-) -> Result<Response, AuthError> {
-    let auth_header = req
-        .headers()
-        .get(http::header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok());
+}
 
-    let auth_header = auth_header.ok_or_else(|| AuthError {
-        message: "Missing authorization".to_string(),
-        status_code: StatusCode::UNAUTHORIZED,
-    })?;
-
-    if let Ok(claims) = authorize_current_user(auth_header, key, validation).await {
-        req.extensions_mut().insert(claims);
-        Ok(next.run(req).await)
-    } else {
-        Err(AuthError {
-            message: "Invalid token".to_string(),
-            status_code: StatusCode::UNAUTHORIZED,
-        })
+impl AuthLayer {
+    /// Create a new `AuthLayer`.
+    pub fn new(key: DecodingKey, validation: Validation) -> Self {
+        Self { key, validation }
     }
 }
 
-pub struct EncodingContext {
-    pub key: EncodingKey,
-    pub validation: Validation,
-    pub header: Header,
+impl<S> tower::Layer<S> for AuthLayer {
+    type Service = AuthService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        AuthService {
+            inner,
+            key: self.key.clone(),
+            validation: self.validation.clone(),
+        }
+    }
 }
 
-pub struct DecodingContext {
-    pub key: DecodingKey,
-    pub validation: Validation,
-    pub header: Header,
+/// The auth service that will be used by the `AuthLayer`.
+#[derive(Clone)]
+pub struct AuthService<S> {
+    inner: S,
+    key: DecodingKey,
+    validation: Validation,
 }
 
+impl<S, ReqBody> tower::Service<Request<ReqBody>> for AuthService<S>
+where
+    S: tower::Service<Request<ReqBody>, Response = Response> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
+        let mut inner = self.inner.clone();
+        let key = self.key.clone();
+        let validation = self.validation.clone();
+
+        let auth_header = req
+            .headers()
+            .get(http::header::AUTHORIZATION)
+            .and_then(|header| header.to_str().ok())
+            .map(|s| s.to_string());
+
+        let future = async move {
+            if let Some(auth_header) = auth_header {
+                if let Ok(claims) = authorize_current_user(&auth_header, &key, validation).await {
+                    req.extensions_mut().insert(claims);
+                }
+            }
+            inner.call(req).await
+        };
+
+        Box::pin(future)
+    }
+}
+
+/// The request body for the refresh token handler.
 #[derive(Deserialize)]
 pub struct RefreshBody {
     token: String,
 }
 
+/// Authorize a user from an auth token.
 async fn authorize_current_user(
     auth_token: &str,
     key: &DecodingKey,
@@ -134,6 +267,7 @@ async fn authorize_current_user(
     }
 }
 
+/// Encode a new token.
 pub async fn auth_token_encode(
     claims: Claims,
     header: &Header,
@@ -143,6 +277,7 @@ pub async fn auth_token_encode(
     Ok(token)
 }
 
+/// Decode a token.
 pub async fn auth_token_decode(
     token: String,
     key: &DecodingKey,
@@ -153,24 +288,20 @@ pub async fn auth_token_decode(
     Ok(claims)
 }
 
-pub async fn login<D>(
+/// The login handler.
+pub async fn login(
     body: Json<RequestBody>,
-    user_data: D,
-    jwt_secret: String,
-    refresh_jwt_secret: String,
+    user_data: &dyn UserData,
+    jwt_key: &EncodingKey,
+    refresh_key: &EncodingKey,
     expiry_timestamp: i64,
-) -> impl IntoResponse
-where
-    D: UserData,
-{
+) -> Result<Json<serde_json::Value>, AuthError> {
     let email = &body.email;
     let password = &body.password;
 
     if let Some(user) = user_data.get_user_by_email(email).await {
-        if email == &user.email && password == &user.password {
+        if user_data.verify_password(&user.id, password).await {
             let header = &Header::default();
-            let key = EncodingKey::from_secret(jwt_secret.as_ref());
-            let refresh_key = EncodingKey::from_secret(refresh_jwt_secret.as_ref());
             let refresh_header = &Header::default();
 
             let claims = Claims {
@@ -179,62 +310,45 @@ where
                 exp: expiry_timestamp,
             };
 
-            let access_token = auth_token_encode(claims.clone(), header, &key).await;
-            let refresh_token = auth_token_encode(claims, refresh_header, &refresh_key).await;
+            let access_token = auth_token_encode(claims.clone(), header, jwt_key)
+                .await
+                .map_err(|_| AuthError::TokenCreation)?;
+            let refresh_token = auth_token_encode(claims, refresh_header, refresh_key)
+                .await
+                .map_err(|_| AuthError::TokenCreation)?;
             let response = Json(json!({
-                "access_token": access_token.expect("Invalid token"),
+                "access_token": access_token,
                 "username": user.username,
-                "refresh_token": refresh_token.expect("invalid refresh token")
+                "refresh_token": refresh_token
             }));
             return Ok(response);
         }
     }
 
-    let error = AuthError {
-        message: "Invalid username or password".to_string(),
-        status_code: StatusCode::UNAUTHORIZED,
-    };
-    Err(error)
+    Err(AuthError::InvalidUsernameOrPassword)
 }
 
+/// The refresh token handler.
 pub async fn refresh_token(
     body: Json<RefreshBody>,
-    encoding_context: EncodingContext,
-    decoding_context: DecodingContext,
+    key: &EncodingKey,
+    decoding_key: &DecodingKey,
+    validation: &Validation,
+    header: &Header,
     new_claims: Option<Claims>,
-) -> impl IntoResponse {
+) -> Result<Json<serde_json::Value>, AuthError> {
     let token = &body.token;
 
-    match auth_token_decode(
-        token.to_string(),
-        &decoding_context.key,
-        decoding_context.validation,
-    )
-    .await
-    {
+    match auth_token_decode(token.to_string(), decoding_key, validation.clone()).await {
         Ok(mut claims) => {
-            match new_claims {
-                Some(new) => claims.claims = new,
-                None => {}
+            if let Some(new) = new_claims {
+                claims.claims = new;
             }
-            match auth_token_encode(
-                claims.claims,
-                &encoding_context.header,
-                &encoding_context.key,
-            )
-            .await
-            {
-                Ok(new_token) => Ok(Json(json!({"access_token": new_token}))),
-                Err(_) => Err(AuthError {
-                    message: "Invalid refresh token".to_string(),
-                    status_code: StatusCode::UNAUTHORIZED,
-                }),
+            match auth_token_encode(claims.claims, header, key).await {
+                Ok(new_token) => Ok(Json(json!({ "access_token": new_token }))),
+                Err(_) => Err(AuthError::TokenCreation),
             }
         }
-
-        Err(_) => Err(AuthError {
-            message: "Invalid refresh token".to_string(),
-            status_code: StatusCode::UNAUTHORIZED,
-        }),
+        Err(_) => Err(AuthError::InvalidToken),
     }
 }
