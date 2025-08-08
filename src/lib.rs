@@ -209,26 +209,27 @@ where
     }
 
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
-        let mut inner = self.inner.clone();
         let key = self.key.clone();
         let validation = self.validation.clone();
+        let mut inner = self.inner.clone();
 
-        let auth_header = req
-            .headers()
-            .get(http::header::AUTHORIZATION)
-            .and_then(|header| header.to_str().ok())
-            .map(|s| s.to_string());
-
-        let future = async move {
-            if let Some(auth_header) = auth_header {
-                if let Ok(claims) = authorize_current_user(&auth_header, &key, validation).await {
-                    req.extensions_mut().insert(claims);
+        Box::pin(async move {
+            if let Some(auth_header) = req
+                .headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|header| header.to_str().ok())
+            {
+                match authorize_current_user(auth_header, &key, validation).await {
+                    Ok(claims) => {
+                        req.extensions_mut().insert(claims);
+                        inner.call(req).await
+                    }
+                    Err(_) => Ok(AuthError::InvalidToken.into_response()),
                 }
+            } else {
+                Ok(AuthError::MissingAuthorization.into_response())
             }
-            inner.call(req).await
-        };
-
-        Box::pin(future)
+        })
     }
 }
 
