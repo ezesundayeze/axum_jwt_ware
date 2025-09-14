@@ -58,7 +58,7 @@ async fn test_auth_layer_no_token() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -122,4 +122,69 @@ async fn test_login_invalid_credentials() {
         response.unwrap_err().into_response().status(),
         StatusCode::UNAUTHORIZED
     );
+}
+
+#[tokio::test]
+async fn test_refresh_token() {
+    let key = EncodingKey::from_secret("refresh_secret".as_ref());
+    let decoding_key = DecodingKey::from_secret("refresh_secret".as_ref());
+    let validation = Validation::default();
+    let header = Header::default();
+
+    let claims = Claims {
+        sub: "1".to_string(),
+        username: "test".to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+    };
+    let token = encode(&header, &claims, &key).unwrap();
+
+    let body = Json(RefreshBody { token });
+
+    let response = refresh_token(body, &key, &decoding_key, &validation, &header, None).await;
+
+    assert_eq!(response.unwrap().into_response().status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_auth_layer_invalid_token_format() {
+    let app = app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/protected")
+                .header(http::header::AUTHORIZATION, "Bearer invalid-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_auth_layer_expired_token() {
+    let app = app();
+
+    let key = EncodingKey::from_secret("secret".as_ref());
+    let claims = Claims {
+        sub: "1".to_string(),
+        username: "test".to_string(),
+        exp: (chrono::Utc::now() - chrono::Duration::hours(1)).timestamp(),
+    };
+    let token = encode(&Header::default(), &claims, &key).unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/protected")
+                .header(http::header::AUTHORIZATION, format!("Bearer {}", token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }

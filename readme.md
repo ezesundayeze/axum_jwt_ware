@@ -137,6 +137,18 @@ let app = Router::new().route(
 );
 ```
 
+## Error Handling
+
+The middleware and its associated functions return errors that are automatically converted into HTTP responses. Here are the possible error scenarios:
+
+| Error                        | Status Code | Response Body                               | Description                                                                                                                              |
+| ---------------------------- | ----------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `InvalidToken`               | 401         | `{"error": "Invalid token"}`                | Occurs when the provided JWT is invalid, malformed, or expired. This is returned by the authentication middleware.                     |
+| `MissingAuthorization`       | 401         | `{"error": "Missing authorization"}`        | Occurs when the `Authorization` header is not present in a request to a protected route. This is returned by the authentication middleware. |
+| `InvalidUsernameOrPassword`  | 401         | `{"error": "Invalid username or password"}` | Occurs during login when the provided email does not exist or the password does not match. This is returned by the `login` handler.      |
+| `TokenCreation`              | 500         | `{"error": "Token creation error"}`         | Occurs if there is an internal error during the creation of a JWT. This is returned by the `login` and `refresh` handlers.          |
+| `Internal`                   | 500         | `{"error": "Internal server error"}`        | A generic error for any other unexpected server-side issues.                                                                             |
+
 ## Example
 
 You can find a working example in the `examples/helloworld` directory in the [GitHub Repo](https://github.com/ezesundayeze/axum_jwt_ware/tree/main/examples/helloworld).
